@@ -1,9 +1,8 @@
-// Import the functions you need from the SDKs you need
+// firebase.js
 import { initializeApp } from "firebase/app";
 import { getDatabase } from "firebase/database";
-import { getAuth } from "firebase/auth"; // 1. Importação da Autenticação adicionada
+import { getAuth } from "firebase/auth";
 
-// Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyBQE7gpu4GUsfgbNLWuH96_KhhHeKaWKQI",
   authDomain: "meu-crud-firebase.firebaseapp.com",
@@ -14,9 +13,7 @@ const firebaseConfig = {
   measurementId: "G-H1N7X9FZHY"
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Exportando os serviços para usar no App.jsx
 export const db = getDatabase(app);
-export const auth = getAuth(app); // 2. Exportação da Autenticação adicionada
+export const auth = getAuth(app);
