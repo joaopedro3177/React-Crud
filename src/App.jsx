@@ -1,4 +1,3 @@
-import { features } from "./features";
 import { useState, useEffect } from "react";
 import { db, auth } from "./firebase";
 import { ref, set, push, onValue, remove, update } from "firebase/database";
@@ -8,6 +7,7 @@ import {
   onAuthStateChanged,
   signOut
 } from "firebase/auth";
+import "./app.css";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -16,23 +16,59 @@ function App() {
   const [nome, setNome] = useState("");
   const [usuarios, setUsuarios] = useState([]);
   const [idSelecionado, setIdSelecionado] = useState(null);
-
   const [imagemBase64, setImagemBase64] = useState("");
   const [preview, setPreview] = useState("");
 
-  // 🔒 Autenticação
+  // 🔒 Feature flag segura
+  const [remoteFeatures, setRemoteFeatures] = useState({ uploadImagem: false });
+
+  // 🔒 Auth
   useEffect(() => {
     onAuthStateChanged(auth, (usuarioLogado) => setUser(usuarioLogado));
   }, []);
 
+  // 📡 Feature flag (CORRIGIDO)
+  useEffect(() => {
+    const featRef = ref(db, "features");
+
+    onValue(featRef, (snapshot) => {
+      const data = snapshot.val();
+
+      console.log("FEATURES:", data); // DEBUG
+
+      setRemoteFeatures({
+        uploadImagem: data?.uploadImagem === true
+      });
+    });
+  }, []);
+
+  // 📦 Usuários
+  useEffect(() => {
+    if (user) {
+      const usuariosRef = ref(db, "usuarios");
+
+      onValue(usuariosRef, (snapshot) => {
+        const data = snapshot.val();
+
+        setUsuarios(
+          data
+            ? Object.keys(data).map((key) => ({
+                id: key,
+                ...data[key]
+              }))
+            : []
+        );
+      });
+    }
+  }, [user]);
+
   const handleCadastrar = () => {
     createUserWithEmailAndPassword(auth, email, senha)
       .then((userCredential) => {
-        const usuario = userCredential.user;
-        set(ref(db, `logins/${usuario.uid}`), {
-          email: usuario.email,
+        set(ref(db, `logins/${userCredential.user.uid}`), {
+          email: userCredential.user.email,
           ultimoLogin: new Date().toLocaleString("pt-BR"),
-          acao: "Cadastro Biblioteca"
+          acao: "Cadastro"
         });
       })
       .catch((erro) => alert("Erro: " + erro.message));
@@ -41,79 +77,40 @@ function App() {
   const handleLogar = () => {
     signInWithEmailAndPassword(auth, email, senha)
       .then((userCredential) => {
-        const usuario = userCredential.user;
-        set(ref(db, `logins/${usuario.uid}`), {
-          email: usuario.email,
-          ultimoLogin: new Date().toLocaleString("pt-BR"),
-          uid: usuario.uid
+        set(ref(db, `logins/${userCredential.user.uid}`), {
+          email: userCredential.user.email,
+          ultimoLogin: new Date().toLocaleString("pt-BR")
         });
       })
       .catch((erro) => alert("Acesso negado: " + erro.message));
   };
 
-  // 🔄 Carregar usuários
-  useEffect(() => {
-    if (user) {
-      const usuariosRef = ref(db, "usuarios");
-      onValue(usuariosRef, (snapshot) => {
-        const data = snapshot.val();
-        setUsuarios(
-          data
-            ? Object.keys(data).map((key) => ({ id: key, ...data[key] }))
-            : []
-        );
-      });
-    }
-  }, [user]);
-
-  // 💾 Salvar ou atualizar usuário
   const salvarUsuario = (e) => {
     e.preventDefault();
 
-    if (!user) {
-      alert("Você precisa estar logado para salvar usuários.");
-      return;
-    }
-
-    if (nome === "") {
-      alert("O nome do leitor não pode ser vazio.");
-      return;
-    }
+    if (!nome) return alert("Nome vazio!");
 
     const dados = { nome };
 
-    // 🔥 LÓGICA CORRETA DA FEATURE FLAG
-    if (features.uploadImagem) {
-      // só salva se tiver imagem
-      if (imagemBase64) {
-        dados.imagem = imagemBase64;
-      }
+    // 🔒 Só salva imagem se estiver TRUE
+    if (remoteFeatures.uploadImagem === true && imagemBase64) {
+      dados.imagem = imagemBase64;
     } else {
-      // remove imagem se feature desativada
       dados.imagem = null;
     }
 
     if (idSelecionado) {
-      update(ref(db, `usuarios/${idSelecionado}`), dados)
-        .then(() => {
-          setNome("");
-          setIdSelecionado(null);
-          setImagemBase64("");
-          setPreview("");
-        })
-        .catch((err) => alert("Erro ao atualizar: " + err.message));
+      update(ref(db, `usuarios/${idSelecionado}`), dados).then(limpar);
     } else {
-      const usuariosRef = ref(db, "usuarios");
-      const novoUsuarioRef = push(usuariosRef);
-
-      set(novoUsuarioRef, dados)
-        .then(() => {
-          setNome("");
-          setImagemBase64("");
-          setPreview("");
-        })
-        .catch((err) => alert("Erro ao salvar: " + err.message));
+      push(ref(db, "usuarios"), dados).then(limpar);
     }
+  };
+
+  const limpar = () => {
+    setNome("");
+    setIdSelecionado(null);
+    setImagemBase64("");
+    setPreview("");
   };
 
   // 🔐 Tela de login
@@ -122,18 +119,8 @@ function App() {
       <div className="container">
         <div className="box">
           <h1>Biblioteca Central</h1>
-          <p>Gerenciamento de Leitores</p>
-
-          <input
-            placeholder="E-mail"
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <input
-            type="password"
-            placeholder="Senha"
-            onChange={(e) => setSenha(e.target.value)}
-          />
-
+          <input placeholder="E-mail" onChange={(e) => setEmail(e.target.value)} />
+          <input type="password" placeholder="Senha" onChange={(e) => setSenha(e.target.value)} />
           <button onClick={handleLogar}>Entrar</button>
           <button onClick={handleCadastrar} className="link-btn">
             Criar conta
@@ -143,7 +130,6 @@ function App() {
     );
   }
 
-  // 📊 Painel administrativo
   return (
     <div className="container">
       <header className="header">
@@ -155,48 +141,40 @@ function App() {
       </header>
 
       <div className="box">
-        <h3>{idSelecionado ? "Atualizar Leitor" : "Cadastrar Novo Leitor"}</h3>
+        <h3>{idSelecionado ? "Atualizar" : "Cadastrar"} Leitor</h3>
 
         <form onSubmit={salvarUsuario} className="form">
           <input
             value={nome}
             onChange={(e) => setNome(e.target.value)}
-            placeholder="Nome do leitor"
+            placeholder="Nome"
           />
 
-          {features.uploadImagem && (
-            <>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const file = e.target.files[0];
-                  if (!file) return;
+          {/* ✅ CONTROLADO CORRETAMENTE */}
+          {remoteFeatures.uploadImagem === true && (
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files[0];
 
-                  if (!file.type.startsWith("image/")) {
-                    alert("Selecione apenas imagens");
-                    return;
-                  }
+                if (!file || file.size > 300000)
+                  return alert("Imagem muito grande!");
 
-                  if (file.size > 500000) {
-                    alert("Imagem muito grande (máx 500KB)");
-                    return;
-                  }
+                const reader = new FileReader();
 
-                  const reader = new FileReader();
-                  reader.onloadend = () => {
-                    setImagemBase64(reader.result);
-                    setPreview(reader.result);
-                  };
-                  reader.readAsDataURL(file);
-                }}
-              />
-              {preview && (
-                <div>
-                  <img src={preview} alt="Preview" className="img-preview" />
-                </div>
-              )}
-            </>
+                reader.onloadend = () => {
+                  setImagemBase64(reader.result);
+                  setPreview(reader.result);
+                };
+
+                reader.readAsDataURL(file);
+              }}
+            />
+          )}
+
+          {preview && remoteFeatures.uploadImagem === true && (
+            <img src={preview} className="img-preview" alt="preview" />
           )}
 
           <button type="submit">
@@ -213,30 +191,31 @@ function App() {
             {usuarios.map((u) => (
               <tr key={u.id}>
                 <td>
-                  📜 {u.nome}
+                  {u.nome}
 
-                  {/* 🔥 AGORA TAMBÉM ESCONDE SE FEATURE FOR FALSE */}
-                  {features.uploadImagem && u.imagem && (
+                  {remoteFeatures.uploadImagem === true && u.imagem && (
                     <div>
                       <img
                         src={u.imagem}
-                        alt={u.nome}
                         className="img-preview"
+                        alt="user"
                       />
                     </div>
                   )}
                 </td>
+
                 <td>
                   <button
                     onClick={() => {
                       setNome(u.nome);
                       setIdSelecionado(u.id);
-                      setImagemBase64(u.imagem || "");
                       setPreview(u.imagem || "");
+                      setImagemBase64(u.imagem || "");
                     }}
                   >
                     Editar
                   </button>
+
                   <button
                     onClick={() =>
                       remove(ref(db, `usuarios/${u.id}`))
